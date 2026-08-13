@@ -273,25 +273,7 @@
           </table>
 
           <!-- Empty State Container -->
-          <div id="empty-state" class="py-16 flex flex-col items-center justify-center text-center p-6">
-            <div class="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-4 text-slate-500 shadow-inner">
-              <i class="fa-solid fa-file-excel text-2xl"></i>
-            </div>
-            <h3 class="text-base font-semibold text-slate-200 mb-1">Hoja de cálculo vacía</h3>
-            <p class="text-xs text-slate-400 max-w-md mb-6">
-              Conecta tu Gmail para extraer comprobantes recibidos o utiliza el botón de demostración para ver la extracción con Gemini IA.
-            </p>
-            <div class="flex flex-wrap gap-3 justify-center">
-              <button onclick="handleGmailAuthAction()" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-2">
-                <i class="fa-brands fa-google"></i>
-                Conectar Gmail en Tiempo Real
-              </button>
-              <button onclick="generateDemoData()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-2">
-                <i class="fa-solid fa-wand-magic-sparkles"></i>
-                Cargar Ejemplos Sintéticos
-              </button>
-            </div>
-          </div>
+          <div id="empty-state" class="hidden"></div>
         </div>
 
         <!-- Table Footer / Totals -->
