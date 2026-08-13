@@ -1,0 +1,1814 @@
+<!DOCTYPE html>
+<html lang="es" class="h-full bg-slate-900 text-slate-100">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Extractor de Comprobantes Gmail - IA & Hoja de Cálculo</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- SheetJS para exportación a Excel -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <!-- Google Identity Services (GIS) para OAuth 2.0 en navegador -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: {
+              50: '#eef2ff',
+              100: '#e0e7ff',
+              500: '#6366f1',
+              600: '#4f46e5',
+              700: '#4338ca',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Estilos personalizados para celdas editables y barras de desplazamiento */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #1e293b;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #475569;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #64748b;
+    }
+    .editable-cell:focus {
+      outline: 2px solid #6366f1;
+      background-color: #334155;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col font-sans antialiased bg-slate-900 text-slate-100 selection:bg-indigo-500 selection:text-white">
+
+  <!-- Top Navigation Header -->
+  <header class="bg-slate-800/80 backdrop-blur border-b border-slate-700/80 sticky top-0 z-30 px-4 lg:px-8 py-3 flex items-center justify-between">
+    <div class="flex items-center gap-3">
+      <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-pink-500 flex items-center justify-center shadow-lg shadow-indigo-500/20">
+        <i class="fa-solid fa-file-invoice-dollar text-xl text-white"></i>
+      </div>
+      <div>
+        <h1 class="font-bold text-lg leading-tight flex items-center gap-2">
+          Extractor de Comprobantes
+          <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Gemini 3 Flash</span>
+        </h1>
+        <p class="text-xs text-slate-400">Lectura directa de adjuntos de Gmail a Hoja de Cálculo</p>
+      </div>
+    </div>
+
+    <!-- Quick Action Controls -->
+    <div class="flex items-center gap-2 sm:gap-3">
+      <!-- Account Selection Dropdown -->
+      <div class="flex items-center gap-1">
+        <select id="email-account-select" onchange="checkSelectedAccountStatus()" class="bg-slate-800 text-xs font-bold text-white rounded-lg px-3 py-2 border border-slate-700 shadow-sm focus:outline-none focus:border-indigo-500">
+          <option value="">Cargando cuentas...</option>
+        </select>
+        <button onclick="addAccount()" class="p-2 bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg border border-slate-600 transition-colors" title="Agregar Nueva Cuenta">
+          <i class="fa-solid fa-plus"></i>
+        </button>
+      </div>
+
+      <!-- Botones de Control de Servidor -->
+      <button id="btn-backend-start" onclick="startBackendExtraction()" class="inline-flex items-center gap-2 px-4 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg shadow-sm transition-colors">
+        <i class="fa-solid fa-play"></i>
+        <span>Iniciar Extracción</span>
+      </button>
+      
+      <button id="btn-backend-stop" onclick="stopBackendExtraction()" class="hidden items-center gap-2 px-4 py-2 text-xs font-bold bg-red-600 hover:bg-red-500 text-white rounded-lg shadow-sm transition-colors">
+        <i class="fa-solid fa-stop"></i>
+        <span>Detener Extracción</span>
+      </button>
+
+      <button onclick="openSettingsModal()" class="p-2 text-slate-400 hover:text-white bg-slate-800 hover:bg-slate-700 rounded-lg border border-slate-700 transition-colors" title="Configuración de Credenciales">
+        <i class="fa-solid fa-gear"></i>
+      </button>
+    </div>
+  </header>
+
+  <!-- Main Layout Container -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 md:p-6 flex flex-col gap-6">
+
+    <!-- KPI Summary Cards -->
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium">Total Registros</span>
+          <i class="fa-solid fa-table-list text-indigo-400 text-sm"></i>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="kpi-count" class="text-2xl font-bold text-white">0</span>
+          <span id="kpi-count-badge" class="text-[10px] text-slate-400">0 comprobantes</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium">Monto Procesado</span>
+          <i class="fa-solid fa-sack-dollar text-emerald-400 text-sm"></i>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="kpi-total-amount" class="text-2xl font-bold text-emerald-400">$0,00</span>
+          <span class="text-[10px] text-emerald-400/80">Suma total</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 mb-2">
+          <span class="text-xs font-medium">Progreso y Carpeta</span>
+          <i class="fa-solid fa-folder-open text-sky-400 text-sm"></i>
+        </div>
+        <div class="flex items-baseline justify-between">
+          <span id="kpi-sync-progress" class="text-2xl font-bold text-sky-300">-</span>
+          <span id="kpi-sync-folder" class="text-[10px] text-slate-400 truncate max-w-[100px] font-bold">Esperando...</span>
+        </div>
+      </div>
+
+      <div class="bg-slate-800/60 border border-slate-700/60 rounded-xl p-4 flex flex-col justify-between">
+        <div class="flex items-center justify-between text-slate-400 mb-1.5">
+          <span class="text-xs font-medium">Uso de APIs (Gemini)</span>
+          <i class="fa-solid fa-key text-emerald-400 text-sm"></i>
+        </div>
+        <div class="space-y-1.5">
+          <div class="flex items-center justify-between text-xs">
+            <span id="api-keys-count-text" class="font-semibold text-emerald-400">Cargando estado...</span>
+            <span id="api-keys-badge" class="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300 border border-slate-600">--% disponible</span>
+          </div>
+          <!-- Barra de Progreso de Verde a Rojo -->
+          <div class="w-full bg-slate-900 rounded-full h-2.5 p-0.5 border border-slate-700 overflow-hidden relative">
+            <div id="api-usage-bar-fill" class="h-full rounded-full transition-all duration-700 bg-gradient-to-r from-emerald-500 via-yellow-400 to-red-500" style="width: 100%;"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Content Tabs & Toolbar -->
+    <div class="bg-slate-800 border border-slate-700 rounded-xl overflow-hidden flex flex-col flex-1 shadow-xl">
+      
+      <!-- Top Control Bar -->
+      <div class="p-4 border-b border-slate-700 bg-slate-800/90 flex flex-wrap items-center justify-between gap-4">
+        
+        <!-- Navigation Tabs -->
+        <div class="flex bg-slate-900/80 p-1 rounded-lg border border-slate-700 text-xs font-medium">
+          <button id="tab-btn-table" onclick="switchTab('table')" class="px-3 py-1.5 rounded-md transition-all text-white bg-indigo-600 shadow">
+            <i class="fa-solid fa-table mr-1.5"></i>Hoja de Cálculo
+          </button>
+          <button id="tab-btn-gmail" onclick="switchTab('gmail')" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition-all">
+            <i class="fa-brands fa-gmail mr-1.5"></i>Bandeja Gmail
+          </button>
+          <button id="tab-btn-upload" onclick="switchTab('upload')" class="px-3 py-1.5 rounded-md text-slate-400 hover:text-slate-200 transition-all">
+            <i class="fa-solid fa-cloud-arrow-up mr-1.5"></i>Subir Capturas Manuales
+          </button>
+        </div>
+
+        <!-- Table Filters & Search -->
+        <div class="flex items-center gap-2 flex-1 max-w-md">
+          <div class="relative w-full">
+            <i class="fa-solid fa-magnifying-glass absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i>
+            <input type="text" id="search-input" oninput="filterTable()" placeholder="Buscar por Nombre, DNI, Banco, Titular..." class="w-full bg-slate-900 border border-slate-700 rounded-lg pl-9 pr-3 py-1.5 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-indigo-500">
+          </div>
+        </div>
+
+        <!-- Export Buttons -->
+        <div class="flex items-center gap-2">
+          <button onclick="copyTableToClipboard()" class="px-3 py-1.5 text-xs font-medium bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg border border-slate-600 transition-colors flex items-center gap-1.5" title="Copiar para pegar directamente en Google Sheets">
+            <i class="fa-regular fa-copy text-slate-300"></i>
+            <span>Copiar a Sheets</span>
+          </button>
+          
+          <button onclick="exportToExcel()" class="px-3 py-1.5 text-xs font-medium bg-emerald-700 hover:bg-emerald-600 text-white rounded-lg transition-colors flex items-center gap-1.5" title="Descargar XLSX">
+            <i class="fa-solid fa-file-excel"></i>
+            <span>Exportar Excel</span>
+          </button>
+
+          <button onclick="clearAllData()" class="p-1.5 text-slate-400 hover:text-red-400 hover:bg-slate-700 rounded-lg transition-colors" title="Limpiar tabla">
+            <i class="fa-solid fa-trash-can"></i>
+          </button>
+        </div>
+
+      </div>
+
+      <!-- TAB 1: SPREADSHEET TABLE -->
+      <div id="tab-content-table" class="flex-1 flex flex-col overflow-hidden">
+        
+        <!-- Batch progress indicator bar -->
+        <div id="processing-progress-bar" class="hidden bg-indigo-950 border-b border-indigo-800 px-4 py-2 flex items-center justify-between text-xs text-indigo-200">
+          <div class="flex items-center gap-3">
+            <i class="fa-solid fa-spinner fa-spin text-indigo-400"></i>
+            <span id="processing-status-text">Analizando comprobante con Gemini IA...</span>
+          </div>
+          <div class="w-1/3 bg-slate-800 rounded-full h-2 overflow-hidden border border-slate-700">
+            <div id="processing-progress-fill" class="bg-indigo-500 h-full w-0 transition-all duration-300"></div>
+          </div>
+        </div>
+
+        <!-- Table Scrollable Area -->
+        <div class="flex-1 overflow-auto relative">
+          <table id="spreadsheet-table" class="w-full text-left text-xs text-slate-300 border-collapse">
+            <thead class="text-[11px] uppercase tracking-wider bg-slate-900/90 text-slate-400 sticky top-0 z-10 border-b border-slate-700 shadow-sm">
+              <tr>
+                <th scope="col" class="p-3 w-10 text-center border-r border-slate-700/50">#</th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[160px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('apellido_nombre')">
+                    <span>Apellido y Nombre</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[110px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('dni')">
+                    <span>DNI / CUIT</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[130px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('banco')">
+                    <span>Banco</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[140px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('nroOperacion')">
+                    <span>Nro de Operación</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[100px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('fecha')">
+                    <span>Fecha</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[120px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('monto')">
+                    <span>Monto ($)</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+                <th scope="col" class="p-3 border-r border-slate-700/50 min-w-[140px]">
+                  <div class="flex items-center justify-between cursor-pointer" onclick="sortTable('titular_cuenta')">
+                    <span>Titular de Cuenta</span>
+                    <i class="fa-solid fa-sort text-[10px] text-slate-500"></i>
+                  </div>
+                </th>
+              </tr>
+            </thead>
+            <tbody id="table-body" class="divide-y divide-slate-700/60 bg-slate-800/40">
+              <!-- Dynamically populated via JS -->
+            </tbody>
+          </table>
+
+          <!-- Empty State Container -->
+          <div id="empty-state" class="py-16 flex flex-col items-center justify-center text-center p-6">
+            <div class="w-16 h-16 rounded-2xl bg-slate-800 border border-slate-700 flex items-center justify-center mb-4 text-slate-500 shadow-inner">
+              <i class="fa-solid fa-file-excel text-2xl"></i>
+            </div>
+            <h3 class="text-base font-semibold text-slate-200 mb-1">Hoja de cálculo vacía</h3>
+            <p class="text-xs text-slate-400 max-w-md mb-6">
+              Conecta tu Gmail para extraer comprobantes recibidos o utiliza el botón de demostración para ver la extracción con Gemini IA.
+            </p>
+            <div class="flex flex-wrap gap-3 justify-center">
+              <button onclick="handleGmailAuthAction()" class="px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-2">
+                <i class="fa-brands fa-google"></i>
+                Conectar Gmail en Tiempo Real
+              </button>
+              <button onclick="generateDemoData()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md transition-all flex items-center gap-2">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+                Cargar Ejemplos Sintéticos
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Table Footer / Totals -->
+        <div class="p-3 border-t border-slate-700 bg-slate-900/90 flex flex-wrap items-center justify-between text-xs text-slate-400">
+          <div class="flex items-center gap-2">
+            <span id="rows-count-footer">0 filas cargadas</span>
+            <span class="text-slate-600">•</span>
+            <span class="text-slate-400">Puedes editar cualquier celda haciendo clic sobre ella.</span>
+          </div>
+          <div class="font-medium text-slate-200 flex items-center gap-4">
+            <span>Suma Total Montos: <strong id="footer-total-sum" class="text-emerald-400 font-bold">$0,00</strong></span>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- TAB 2: GMAIL INTEGRATION -->
+      <div id="tab-content-gmail" class="hidden flex-1 p-6 flex flex-col gap-6 overflow-auto">
+        <div class="max-w-4xl mx-auto w-full flex flex-col gap-6">
+          
+          <!-- Gmail Integration Status Banner -->
+          <div class="bg-gradient-to-r from-red-950/40 via-slate-800 to-indigo-950/40 border border-slate-700 rounded-2xl p-6 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div class="space-y-2 text-center md:text-left">
+              <div class="inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold">
+                <i class="fa-brands fa-google"></i>
+                <span id="gmail-status-pill">Sin Autenticar</span>
+              </div>
+              <h3 class="text-base font-bold text-white">Bandeja de Gmail en Tiempo Real</h3>
+              <p class="text-xs text-slate-400 max-w-xl">
+                Al conectar con tu <strong>Google OAuth Client ID</strong>, el extractor buscará correos con términos como <em>"comprobante", "transferencia" o "pago"</em>, descargará las imágenes o PDF adjuntos y Gemini IA extraerá automáticamente la información a tu hoja de cálculo.
+              </p>
+            </div>
+
+            <div class="flex flex-col gap-2 shrink-0">
+              <button onclick="handleGmailAuthAction()" class="px-5 py-2.5 bg-red-600 hover:bg-red-500 text-white text-xs font-bold rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+                <i class="fa-brands fa-google text-sm"></i>
+                <span id="gmail-main-btn-label">Iniciar Sesión con Google</span>
+              </button>
+              <button onclick="openSettingsModal()" class="px-3 py-1 text-[11px] text-slate-400 hover:text-white underline text-center">
+                Configurar Client ID
+              </button>
+            </div>
+          </div>
+
+          <!-- Email Query Search Controls -->
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-4 flex flex-wrap items-center justify-between gap-3 text-xs">
+            <div class="flex items-center gap-2 flex-1 min-w-[280px]">
+              <label class="text-slate-400 font-medium shrink-0"><i class="fa-solid fa-filter text-indigo-400 mr-1"></i>Filtro de búsqueda:</label>
+              <input type="text" id="gmail-query-input" value="has:attachment (comprobante OR pago OR transferencia OR mercadopago)" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-slate-200 font-mono text-[11px] focus:outline-none focus:border-indigo-500">
+            </div>
+            
+            <button onclick="fetchRealGmailInbox()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all flex items-center gap-2 shadow">
+              <i class="fa-solid fa-arrows-rotate"></i>
+              Buscar Correos Recientes
+            </button>
+          </div>
+
+          <!-- Gmail Message List -->
+          <div class="bg-slate-900 border border-slate-700 rounded-xl overflow-hidden shadow-lg">
+            <div class="px-4 py-3 bg-slate-800/80 border-b border-slate-700 flex items-center justify-between text-xs">
+              <span class="font-semibold text-slate-200 flex items-center gap-2">
+                <i class="fa-solid fa-inbox text-indigo-400"></i>
+                Correos Encontrados con Adjuntos
+              </span>
+              <span id="gmail-count-label" class="text-slate-400 text-[11px]">0 correos listados</span>
+            </div>
+
+            <div id="gmail-emails-list" class="divide-y divide-slate-800 max-h-[380px] overflow-auto">
+              <div class="p-8 text-center text-slate-500 text-xs">
+                <i class="fa-solid fa-envelope-open text-2xl mb-2 text-slate-600"></i>
+                <p>Presiona <strong>"Iniciar Sesión con Google"</strong> o <strong>"Buscar Correos Recientes"</strong> para sincronizar tu bandeja de Gmail.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Step-by-Step Instructions Panel -->
+          <div class="bg-slate-800/40 border border-slate-700/60 rounded-xl p-5 space-y-3 text-xs">
+            <h4 class="font-bold text-slate-200 flex items-center gap-2">
+              <i class="fa-solid fa-circle-info text-amber-400"></i>
+              ¿Cómo configurar tu Google OAuth Client ID?
+            </h4>
+            <ol class="list-decimal list-inside space-y-1.5 text-slate-400 leading-relaxed">
+              <li>Ingresa a <a href="https://console.cloud.google.com/" target="_blank" class="text-indigo-400 underline">Google Cloud Console</a> y crea un proyecto.</li>
+              <li>En <strong>APIs y Servicios > Biblioteca</strong>, habilita la <strong>Gmail API</strong>.</li>
+              <li>En <strong>Pantalla de consentimiento de OAuth</strong>, agrega el alcance <code class="bg-slate-900 text-indigo-300 px-1 py-0.5 rounded font-mono">https://www.googleapis.com/auth/gmail.readonly</code>.</li>
+              <li>En <strong>Credenciales</strong>, crea un <strong>ID de cliente de OAuth (Aplicación Web)</strong>.</li>
+              <li>En <strong>Orígenes autorizados de JavaScript</strong>, agrega la URL actual de tu app: 
+                <code id="current-origin-badge" class="bg-indigo-950 text-indigo-300 px-1.5 py-0.5 rounded font-mono border border-indigo-700 select-all cursor-pointer" onclick="copyCurrentOrigin()" title="Haz clic para copiar">cargando...</code>
+              </li>
+              <li>Copia tu Client ID, haz clic en el botón de engranaje <i class="fa-solid fa-gear text-slate-300"></i> arriba y pégalo.</li>
+            </ol>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- TAB 3: FILE UPLOAD -->
+      <div id="tab-content-upload" class="hidden flex-1 p-6 flex flex-col gap-6 overflow-auto">
+        <div class="max-w-3xl mx-auto w-full flex flex-col gap-6">
+          
+          <div class="text-center space-y-1">
+            <h2 class="text-lg font-bold text-slate-100">Cargar Archivos o Capturas de Pantalla</h2>
+            <p class="text-xs text-slate-400">Procesa comprobantes locales desde tu dispositivo (Mercado Pago, Galicia, BBVA, Santander, etc.)</p>
+          </div>
+
+          <!-- Dropzone -->
+          <div id="drop-zone" ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleFileDrop(event)" class="border-2 border-dashed border-indigo-500/40 hover:border-indigo-500 rounded-2xl p-8 bg-slate-800/40 hover:bg-slate-800/80 transition-all text-center cursor-pointer group flex flex-col items-center justify-center min-h-[220px]">
+            <input type="file" id="file-input" multiple accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+            
+            <div class="w-16 h-16 rounded-2xl bg-indigo-500/10 border border-indigo-500/20 text-indigo-400 flex items-center justify-center text-2xl mb-4 group-hover:scale-110 transition-transform">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+            </div>
+            <h3 class="text-sm font-semibold text-slate-200 mb-1">Arrastra tus comprobantes aquí</h3>
+            <p class="text-xs text-slate-400 mb-4">Soporta imágenes JPG, PNG, WEBP y capturas de pantalla</p>
+
+            <button onclick="document.getElementById('file-input').click()" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-medium rounded-lg text-xs shadow-md transition-colors flex items-center gap-2">
+              <i class="fa-solid fa-folder-open"></i>
+              Seleccionar del Equipo
+            </button>
+          </div>
+
+          <!-- Upload Queue list -->
+          <div id="upload-queue-container" class="hidden flex flex-col gap-3">
+            <div class="flex items-center justify-between text-xs font-semibold text-slate-300">
+              <span>Archivos en cola (<span id="queue-count">0</span>)</span>
+              <button onclick="processQueue()" class="px-4 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition-all shadow-md flex items-center gap-2">
+                <i class="fa-solid fa-microchip"></i>
+                Procesar Todos con IA
+              </button>
+            </div>
+
+            <div id="upload-queue-list" class="space-y-2 max-h-[250px] overflow-auto pr-1">
+              <!-- Queue items rendered here -->
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+  </main>
+
+  <!-- MODAL: View Receipt Details & Side-by-Side Verification -->
+  <div id="receipt-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl">
+      
+      <!-- Modal Header -->
+      <div class="px-6 py-4 border-b border-slate-700 flex items-center justify-between bg-slate-900/60">
+        <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-file-invoice text-indigo-400"></i>
+          <span>Detalle y Verificación de Comprobante</span>
+        </h3>
+        <button onclick="closeReceiptModal()" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <!-- Modal Content Body -->
+      <div class="p-6 overflow-auto flex-1 grid grid-cols-1 md:grid-cols-2 gap-6">
+        
+        <!-- Left: Image Preview Container -->
+        <div class="flex flex-col gap-2">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Imagen del Comprobante</span>
+          <div class="bg-slate-900 border border-slate-700 rounded-xl p-2 flex items-center justify-center min-h-[280px] max-h-[380px] overflow-hidden relative">
+            <img id="modal-receipt-img" src="" alt="Comprobante" class="max-h-full max-w-full object-contain rounded">
+          </div>
+        </div>
+
+        <!-- Right: Extracted Data Form -->
+        <div class="flex flex-col gap-4">
+          <span class="text-xs font-semibold text-slate-400 uppercase tracking-wider">Datos Extraídos por Gemini IA</span>
+          
+          <div class="space-y-3 bg-slate-900/60 p-4 rounded-xl border border-slate-700/80 text-xs">
+            <div>
+              <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Apellido y Nombre</label>
+              <input type="text" id="modal-field-nombre" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-100 font-medium">
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">DNI / CUIT</label>
+                <input type="text" id="modal-field-dni" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-100 font-medium font-mono">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Banco / Entidad</label>
+                <input type="text" id="modal-field-banco" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-sky-300 font-medium">
+              </div>
+            </div>
+            
+            <div class="grid grid-cols-3 gap-2">
+              <div>
+                <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Operación N°</label>
+                <input type="text" id="modal-field-nro" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-100 font-medium">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Fecha</label>
+                <input type="text" id="modal-field-fecha" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-100 font-medium">
+              </div>
+              <div>
+                <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Monto ($)</label>
+                <input type="text" id="modal-field-monto" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-emerald-400 font-medium font-mono">
+              </div>
+            </div>
+
+            <div>
+              <label class="block text-slate-400 text-[10px] uppercase font-semibold mb-1">Titular de la Cuenta</label>
+              <input type="text" id="modal-field-titular" class="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-100 font-medium">
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="px-6 py-3 border-t border-slate-700 bg-slate-900/80 flex items-center justify-between">
+        <button onclick="deleteCurrentModalRow()" class="px-3 py-1.5 bg-red-950/60 hover:bg-red-900 border border-red-800/80 text-red-300 rounded-lg text-xs transition-colors">
+          <i class="fa-solid fa-trash mr-1"></i>Eliminar Fila
+        </button>
+
+        <button onclick="saveModalRowChanges()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-xs font-semibold shadow-md transition-colors">
+          <i class="fa-solid fa-floppy-disk mr-1"></i>Guardar Cambios
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- MODAL: Settings / API Credentials -->
+  <div id="settings-modal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-800 border border-slate-700 rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+      <div class="px-6 py-4 border-b border-slate-700 flex items-center justify-between">
+        <h3 class="font-bold text-sm text-slate-200 flex items-center gap-2">
+          <i class="fa-solid fa-gear text-indigo-400"></i>
+          <span>Configuración de Credenciales de Google</span>
+        </h3>
+        <button onclick="closeSettingsModal()" class="text-slate-400 hover:text-white">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+
+      <div class="p-6 space-y-4 text-xs">
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Google OAuth Client ID (Para Gmail API)</label>
+          <input type="text" id="gmail-client-id" placeholder="123456789-abc...apps.googleusercontent.com" class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono focus:outline-none focus:border-indigo-500">
+          <p class="text-[10px] text-slate-400 mt-1">Generado en Google Cloud Console para autorizar la conexión con tu cuenta de Gmail real.</p>
+        </div>
+
+        <div class="p-3 bg-amber-950/30 border border-amber-800/50 rounded-lg text-[11px] text-amber-200">
+          <p class="font-semibold mb-1"><i class="fa-solid fa-triangle-exclamation text-amber-400 mr-1"></i>Origen de JavaScript Requerido:</p>
+          <p class="text-slate-300 mb-1">En Google Cloud Console debes agregar la siguiente URL exacta a tu Client ID en <strong>Orígenes autorizados de JavaScript</strong>:</p>
+          <code id="modal-current-origin" class="block p-1.5 bg-slate-900 text-amber-300 rounded font-mono text-[10px] border border-slate-700 select-all cursor-pointer" onclick="copyCurrentOrigin()"></code>
+        </div>
+
+        <div>
+          <label class="block text-slate-300 font-semibold mb-1">Clave de API Gemini (Gemini AI Studio Key)</label>
+          <input type="password" id="custom-gemini-key" placeholder="AIzaSy..." class="w-full bg-slate-900 border border-slate-700 rounded-lg p-2.5 text-slate-200 font-mono focus:outline-none focus:border-indigo-500">
+          <p class="text-[10px] text-slate-400 mt-1">Clave obtenida de Google AI Studio para procesar las imágenes con la IA.</p>
+        </div>
+
+        <div class="p-3 bg-indigo-950/40 border border-indigo-800/50 rounded-lg text-[11px] text-indigo-200">
+          <i class="fa-solid fa-shield-halved text-indigo-400 mr-1"></i>
+          Las credenciales se guardan de forma segura únicamente en la memoria local (<code class="bg-indigo-900 px-1 rounded">localStorage</code>) de tu navegador.
+        </div>
+      </div>
+
+      <div class="px-6 py-3 border-t border-slate-700 bg-slate-900/60 flex justify-end gap-2">
+        <button onclick="closeSettingsModal()" class="px-3 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-300 font-medium rounded-lg text-xs">
+          Cancelar
+        </button>
+        <button onclick="saveSettings()" class="px-4 py-1.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold rounded-lg text-xs shadow">
+          Guardar Credenciales
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    /* Application State */
+    let records = [];
+    let fileQueue = [];
+    let currentModalIndex = null;
+    let sortDirection = {};
+
+    // Google Auth State
+    let tokenClient = null;
+    let accessToken = null;
+    let gmailMessagesList = [];
+
+    let serverAuthUrl = null;
+
+    // Initialize application and load saved credentials
+    window.onload = async function() {
+      loadSavedCredentials();
+      renderTable();
+      updateMetrics();
+      initGoogleIdentityClient();
+      displayCurrentOrigin();
+      await fetchAvailableAccounts();
+      checkSelectedAccountStatus();
+    };
+
+    async function fetchAvailableAccounts() {
+      try {
+        const res = await fetch('/api/accounts');
+        const data = await res.json();
+        const select = document.getElementById('email-account-select');
+        select.innerHTML = '';
+        if (data.accounts && data.accounts.length > 0) {
+          data.accounts.forEach(acc => {
+            const option = document.createElement('option');
+            option.value = acc;
+            option.textContent = acc;
+            select.appendChild(option);
+          });
+        } else {
+          const option = document.createElement('option');
+          option.value = '';
+          option.textContent = 'Sin cuentas vinculadas';
+          select.appendChild(option);
+        }
+      } catch (e) {
+        console.error("Error al cargar cuentas:", e);
+      }
+    }
+
+    async function checkSelectedAccountStatus() {
+      const select = document.getElementById('email-account-select');
+      const email = select.value;
+      if (!email) {
+        updateAuthUI(false);
+        return;
+      }
+      try {
+        const res = await fetch('/api/account?email=' + encodeURIComponent(email));
+        const data = await res.json();
+        if (data.connected && data.email) {
+          updateAuthUI(true, data.email);
+        } else if (data.authUrl) {
+          serverAuthUrl = data.authUrl;
+          updateAuthUI(false);
+        }
+      } catch (e) {
+        console.warn("Servidor backend local no responde aún:", e);
+      }
+    }
+
+    async function addAccount() {
+      try {
+        const res = await fetch('/api/auth-url');
+        const data = await res.json();
+        if (data.authUrl) {
+          window.location.href = data.authUrl;
+        }
+      } catch (e) {
+        alert("Error al obtener la URL de autorización: " + e.message);
+      }
+    }
+
+    function displayCurrentOrigin() {
+      const origin = window.location.origin === 'null' || window.location.protocol === 'file:' 
+        ? 'http://localhost:8000 (Ejecuta un servidor local)' 
+        : window.location.origin;
+      
+      const badge = document.getElementById('current-origin-badge');
+      const modalBadge = document.getElementById('modal-current-origin');
+      
+      if (badge) badge.innerText = origin;
+      if (modalBadge) modalBadge.innerText = origin;
+    }
+
+    function copyCurrentOrigin() {
+      const origin = window.location.origin;
+      if (origin && origin !== 'null') {
+        const textArea = document.createElement("textarea");
+        textArea.value = origin;
+        document.body.appendChild(textArea);
+        textArea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textArea);
+        alert(`Origen copiado: ${origin}\nPágalo en Google Cloud Console en "Orígenes autorizados de JavaScript".`);
+      } else {
+        alert("Atención: Estás abriendo el archivo mediante file://. Por favor ejecuta la app desde un servidor local (ej. Live Server o http://localhost:8000).");
+      }
+    }
+
+    let backendEventSource = null;
+
+    async function startBackendExtraction() {
+      const select = document.getElementById('email-account-select');
+      const email = select.value;
+      if (!email) {
+        alert("Por favor seleccione una cuenta de correo antes de iniciar la extracción.");
+        return;
+      }
+      try {
+        const res = await fetch('/api/start?email=' + encodeURIComponent(email));
+        const data = await res.json();
+
+        if (data.status === 'not_authorized' && data.authUrl) {
+          showProgressBar(false);
+          const userConfirm = confirm("Debes autorizar el acceso a la cuenta " + email + " para escanear correos. ¿Deseas abrir la ventana de autorización de Google ahora?");
+          if (userConfirm) {
+            window.open(data.authUrl, '_blank');
+          }
+          return;
+        }
+
+        if (data.status === 'started' || data.status === 'already running') {
+          document.getElementById('btn-backend-start').classList.add('hidden');
+          document.getElementById('btn-backend-stop').classList.remove('hidden');
+          document.getElementById('btn-backend-stop').classList.add('inline-flex');
+          showProgressBar(true, "Extrayendo en el servidor (mirar tabla en tiempo real)...");
+          
+          if (!backendEventSource) {
+            backendEventSource = new EventSource('/api/stream');
+
+            // El servidor emite 'row_extracted' como evento NOMBRADO (no 'message' genérico)
+            backendEventSource.addEventListener('row_extracted', function(event) {
+              const data = JSON.parse(event.data);
+              // data contiene: nombre, dni, banco, operacion, fecha, monto, titular, savedFilename, folderName
+              records.push({
+                id: Date.now() + Math.random(),
+                apellido_nombre: data.nombre || '',
+                dni: data.dni || '',
+                banco: data.banco || '',
+                nroOperacion: data.operacion || '',
+                fecha: data.fecha || '',
+                monto: data.monto || '',
+                titular_cuenta: data.titular || ''
+              });
+              renderTable();
+              updateMetrics();
+              switchTab('table');
+            });
+
+            // Compatibilidad: también escuchar mensaje plano por si acaso
+            backendEventSource.onmessage = function(event) {
+              try {
+                const row = JSON.parse(event.data);
+                if (Array.isArray(row)) {
+                  records.push({
+                    id: Date.now() + Math.random(),
+                    apellido_nombre: row[0],
+                    dni: row[1],
+                    banco: row[2],
+                    nroOperacion: row[3],
+                    fecha: row[4],
+                    monto: row[5],
+                    titular_cuenta: row[6]
+                  });
+                  renderTable();
+                  updateMetrics();
+                  switchTab('table');
+                }
+              } catch(e) {}
+            };
+
+            backendEventSource.addEventListener('sync_start', function(e) {
+              const info = JSON.parse(e.data);
+              const progressEl = document.getElementById('kpi-sync-progress');
+              const folderEl = document.getElementById('kpi-sync-folder');
+              if (progressEl) progressEl.innerText = `0 / ${info.targetLimit || 15}`;
+              if (folderEl) folderEl.innerText = info.folderName || '';
+            });
+
+            backendEventSource.addEventListener('sync_progress', function(e) {
+              const info = JSON.parse(e.data);
+              const progressEl = document.getElementById('kpi-sync-progress');
+              const folderEl = document.getElementById('kpi-sync-folder');
+              if (progressEl) progressEl.innerText = `${info.current} / ${info.total}`;
+              if (folderEl) folderEl.innerText = info.folderName || '';
+            });
+
+            backendEventSource.addEventListener('sync_done', function(e) {
+              const info = JSON.parse(e.data);
+              showProgressBar(false);
+              document.getElementById('btn-backend-stop').classList.add('hidden');
+              document.getElementById('btn-backend-stop').classList.remove('inline-flex');
+              document.getElementById('btn-backend-start').classList.remove('hidden');
+              document.getElementById('btn-backend-start').classList.add('inline-flex');
+              if (backendEventSource) { backendEventSource.close(); backendEventSource = null; }
+            });
+
+            backendEventSource.addEventListener('batch_completed', function(e) {
+              const info = JSON.parse(e.data);
+              showProgressBar(false);
+              document.getElementById('btn-backend-stop').classList.add('hidden');
+              document.getElementById('btn-backend-stop').classList.remove('inline-flex');
+              document.getElementById('btn-backend-start').classList.remove('hidden');
+              document.getElementById('btn-backend-start').classList.add('inline-flex');
+              alert(info.message || "¡Límite de 15 comprobantes alcanzado! Por favor copie los registros a su archivo de Excel.");
+              if (backendEventSource) { backendEventSource.close(); backendEventSource = null; }
+            });
+          }
+        }
+      } catch (err) {
+        alert('Error al conectar con el servidor local: ' + err.message);
+      }
+    }
+
+    async function stopBackendExtraction() {
+      try {
+        const res = await fetch('/api/stop');
+        await res.json();
+        document.getElementById('btn-backend-stop').classList.add('hidden');
+        document.getElementById('btn-backend-stop').classList.remove('inline-flex');
+        document.getElementById('btn-backend-start').classList.remove('hidden');
+        document.getElementById('btn-backend-start').classList.add('inline-flex');
+        showProgressBar(false);
+        alert("El proceso de extracción se detendrá después del correo actual.");
+      } catch (err) {
+        alert('Error al conectar con el servidor local: ' + err.message);
+      }
+    }
+
+    async function updateApiKeysUsageBar() {
+      try {
+        const res = await fetch('/api/keys-status');
+        const data = await res.json();
+        const active = data.activeCount || 0;
+        const total = data.totalCount || 0;
+        const percent = data.percentageActive || 0;
+
+        const countText = document.getElementById('api-keys-count-text');
+        const badgeText = document.getElementById('api-keys-badge');
+        const barFill = document.getElementById('api-usage-bar-fill');
+
+        if (countText && badgeText && barFill) {
+          countText.textContent = `${active} de ${total} Claves Activas`;
+          badgeText.textContent = `${percent}% disponible`;
+          barFill.style.width = `${percent}%`;
+
+          if (percent > 60) {
+            countText.className = 'font-semibold text-emerald-400';
+            badgeText.className = 'text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800';
+          } else if (percent > 25) {
+            countText.className = 'font-semibold text-amber-400';
+            badgeText.className = 'text-[10px] px-1.5 py-0.5 rounded bg-amber-950 text-amber-300 border border-amber-800';
+          } else {
+            countText.className = 'font-semibold text-red-400';
+            badgeText.className = 'text-[10px] px-1.5 py-0.5 rounded bg-red-950 text-red-300 border border-red-800';
+          }
+        }
+      } catch (e) {
+        console.warn('No se pudo actualizar la barra de uso de APIs:', e);
+      }
+    }
+
+    updateApiKeysUsageBar();
+    setInterval(updateApiKeysUsageBar, 15000);
+
+    // Polling de estado para saber si el servidor paró
+    setInterval(async () => {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+        if (!data.isRunning) {
+          document.getElementById('btn-backend-stop').classList.add('hidden');
+          document.getElementById('btn-backend-stop').classList.remove('inline-flex');
+          document.getElementById('btn-backend-start').classList.remove('hidden');
+          document.getElementById('btn-backend-start').classList.add('inline-flex');
+          showProgressBar(false);
+          
+          if (backendEventSource) {
+            backendEventSource.close();
+            backendEventSource = null;
+          }
+        } else {
+          document.getElementById('btn-backend-start').classList.add('hidden');
+          document.getElementById('btn-backend-stop').classList.remove('hidden');
+          document.getElementById('btn-backend-stop').classList.add('inline-flex');
+        }
+      } catch (e) {
+        // Ignorar si el servidor está apagado
+      }
+    }, 3000);
+
+    function loadSavedCredentials() {
+      const savedClientId = localStorage.getItem('gmail_client_id') || '';
+      const savedGeminiKey = localStorage.getItem('gemini_api_key') || '';
+      
+      document.getElementById('gmail-client-id').value = savedClientId;
+      document.getElementById('custom-gemini-key').value = savedGeminiKey;
+
+      accessToken = localStorage.getItem('gmail_access_token') || null;
+      if (accessToken) {
+        updateAuthUI(true);
+      }
+    }
+
+    function saveSettings() {
+      const clientId = document.getElementById('gmail-client-id').value.trim();
+      const geminiKey = document.getElementById('custom-gemini-key').value.trim();
+
+      localStorage.setItem('gmail_client_id', clientId);
+      localStorage.setItem('gemini_api_key', geminiKey);
+
+      closeSettingsModal();
+      initGoogleIdentityClient();
+      alert("Credenciales guardadas correctamente.");
+    }
+
+    /* Switch Tabs */
+    function switchTab(tab) {
+      ['table', 'upload', 'gmail'].forEach(t => {
+        document.getElementById(`tab-content-${t}`).classList.add('hidden');
+        const btn = document.getElementById(`tab-btn-${t}`);
+        btn.classList.remove('bg-indigo-600', 'text-white', 'shadow');
+        btn.classList.add('text-slate-400');
+      });
+
+      document.getElementById(`tab-content-${tab}`).classList.remove('hidden');
+      const activeBtn = document.getElementById(`tab-btn-${tab}`);
+      activeBtn.classList.add('bg-indigo-600', 'text-white', 'shadow');
+      activeBtn.classList.remove('text-slate-400');
+    }
+
+    function initGoogleIdentityClient() {
+      const clientId = localStorage.getItem('gmail_client_id');
+      if (!clientId || typeof google === 'undefined' || !google.accounts) return;
+
+      try {
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/gmail.readonly',
+          callback: async (response) => {
+            if (response.error) {
+              console.error('Error OAuth Google:', response);
+              alert('Error en la autenticación de Google: ' + response.error);
+              return;
+            }
+            accessToken = response.access_token;
+            localStorage.setItem('gmail_access_token', accessToken);
+            updateAuthUI(true);
+            await fetchRealGmailInbox();
+          },
+        });
+      } catch (err) {
+        console.error("Error al inicializar cliente GIS:", err);
+      }
+    }
+
+    function handleGmailAuthAction() {
+      if (serverAuthUrl) {
+        window.location.href = serverAuthUrl;
+        return;
+      }
+      const clientId = localStorage.getItem('gmail_client_id');
+      if (!clientId) {
+        openSettingsModal();
+        alert("Por favor ingresa tu Google OAuth Client ID en la configuración o usa el servidor local.");
+        return;
+      }
+
+      if (!tokenClient) {
+        initGoogleIdentityClient();
+      }
+
+      if (tokenClient) {
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      } else {
+        alert("El script de Google aún no ha cargado. Verifica tu conexión a internet.");
+      }
+    }
+
+    function updateAuthUI(isConnected, accountEmail = null) {
+      const btnText = document.getElementById('btn-gmail-text');
+      const mainBtnLabel = document.getElementById('gmail-main-btn-label');
+      const statusText = document.getElementById('kpi-status-text');
+      const statusBadge = document.getElementById('kpi-status-badge');
+      const gmailStatusPill = document.getElementById('gmail-status-pill');
+
+      if (isConnected) {
+        const displayLabel = accountEmail ? `Conectado (${accountEmail})` : "Gmail Conectado";
+        if (btnText) btnText.innerText = "Gmail Conectado";
+        if (mainBtnLabel) mainBtnLabel.innerText = "Reconectar Cuenta de Google";
+        if (statusText) {
+          statusText.innerText = accountEmail || "Conectado";
+          statusText.className = "text-sm font-semibold text-emerald-400 truncate";
+        }
+        if (statusBadge) {
+          statusBadge.innerText = "OAuth Activo";
+          statusBadge.className = "text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30";
+        }
+        if (gmailStatusPill) {
+          gmailStatusPill.innerText = displayLabel;
+          gmailStatusPill.parentElement.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold";
+        }
+      } else {
+        if (btnText) btnText.innerText = "Conectar Gmail";
+        if (mainBtnLabel) mainBtnLabel.innerText = "Conectar Gmail (Nueva Cuenta)";
+        if (statusText) {
+          statusText.innerText = "Desconectado";
+          statusText.className = "text-sm font-semibold text-slate-200";
+        }
+        if (statusBadge) {
+          statusBadge.innerText = "OAuth Pendiente";
+          statusBadge.className = "text-[10px] px-2 py-0.5 rounded bg-slate-700 text-slate-400 border border-slate-600";
+        }
+        if (gmailStatusPill) {
+          gmailStatusPill.innerText = "Sin Autenticar";
+          gmailStatusPill.parentElement.className = "inline-flex items-center gap-2 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-xs font-semibold";
+        }
+      }
+    }
+
+    /**
+     * Real Gmail API Call to fetch inbox messages with attachments
+     */
+    async function fetchRealGmailInbox() {
+      if (!accessToken) {
+        handleGmailAuthAction();
+        return;
+      }
+
+      switchTab('gmail');
+      showProgressBar(true, "Buscando correos recibidos en Gmail...");
+
+      const query = encodeURIComponent(document.getElementById('gmail-query-input').value.trim());
+      const apiUrl = `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${query}&maxResults=10`;
+
+      try {
+        const response = await fetch(apiUrl, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        if (response.status === 401) {
+          // Token expired
+          alert("La sesión de Gmail ha expirado. Por favor inicia sesión nuevamente.");
+          updateAuthUI(false);
+          handleGmailAuthAction();
+          return;
+        }
+
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+
+        const data = await response.json();
+        const messages = data.messages || [];
+
+        document.getElementById('gmail-count-label').innerText = `${messages.length} correos con adjuntos encontrados`;
+
+        if (messages.length === 0) {
+          document.getElementById('gmail-emails-list').innerHTML = `
+            <div class="p-8 text-center text-slate-400 text-xs">
+              <i class="fa-solid fa-circle-exclamation text-amber-400 text-xl mb-2"></i>
+              <p>No se encontraron correos recientes con adjuntos usando la consulta actual.</p>
+            </div>`;
+          showProgressBar(false);
+          return;
+        }
+
+        // Fetch details for each message
+        const messageDetailsList = [];
+        for (let msg of messages) {
+          const detailRes = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msg.id}`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          });
+          if (detailRes.ok) {
+            const detail = await detailRes.json();
+            messageDetailsList.push(detail);
+          }
+        }
+
+        gmailMessagesList = messageDetailsList;
+        renderGmailMessagesList(messageDetailsList);
+
+      } catch (err) {
+        console.error("Error al obtener correos de Gmail API:", err);
+        alert("Error de conexión a Gmail: " + err.message);
+      } finally {
+        showProgressBar(false);
+      }
+    }
+
+    function renderGmailMessagesList(messages) {
+      const container = document.getElementById('gmail-emails-list');
+      container.innerHTML = '';
+
+      messages.forEach((msg) => {
+        const headers = msg.payload?.headers || [];
+        const subject = headers.find(h => h.name.toLowerCase() === 'subject')?.value || 'Sin asunto';
+        const from = headers.find(h => h.name.toLowerCase() === 'from')?.value || 'Desconocido';
+        const date = headers.find(h => h.name.toLowerCase() === 'date')?.value || '';
+
+        // Find image or PDF attachment parts
+        const parts = msg.payload?.parts || [msg.payload];
+        const attachments = [];
+
+        function findAttachments(partsList) {
+          if (!partsList) return;
+          partsList.forEach(part => {
+            if (part.filename && part.filename.length > 0 && part.body && part.body.attachmentId) {
+              attachments.push({
+                filename: part.filename,
+                attachmentId: part.body.attachmentId,
+                mimeType: part.mimeType
+              });
+            }
+            if (part.parts) findAttachments(part.parts);
+          });
+        }
+        findAttachments(parts);
+
+        const item = document.createElement('div');
+        item.className = "p-4 hover:bg-slate-800/60 transition-colors flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800";
+
+        item.innerHTML = `
+          <div class="flex items-start gap-3">
+            <div class="w-8 h-8 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center shrink-0 mt-0.5">
+              <i class="fa-solid fa-paperclip"></i>
+            </div>
+            <div>
+              <p class="text-xs font-bold text-slate-200">${escapeHtml(subject)}</p>
+              <p class="text-[11px] text-slate-400">De: <span class="text-slate-300">${escapeHtml(from)}</span> • ${escapeHtml(date)}</p>
+              <div class="flex flex-wrap gap-1.5 mt-1.5">
+                ${attachments.length > 0 
+                  ? attachments.map(a => `<span class="inline-flex items-center gap-1 text-[10px] bg-slate-800 text-indigo-300 px-2 py-0.5 rounded border border-slate-700"><i class="fa-regular fa-image"></i> ${escapeHtml(a.filename)}</span>`).join('') 
+                  : '<span class="text-[10px] text-slate-500 italic">Sin archivos de imagen directos</span>'}
+              </div>
+            </div>
+          </div>
+
+          <button onclick="processGmailAttachment('${msg.id}', '${attachments[0]?.attachmentId || ''}', '${attachments[0]?.mimeType || 'image/png'}')" ${attachments.length === 0 ? 'disabled' : ''} class="shrink-0 px-3 py-1.5 ${attachments.length > 0 ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow' : 'bg-slate-700 text-slate-500 cursor-not-allowed'} rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5">
+            <i class="fa-solid fa-wand-magic-sparkles"></i>
+            <span>Extraer con Gemini IA</span>
+          </button>
+        `;
+
+        container.appendChild(item);
+      });
+    }
+
+    /**
+     * Download attachment base64 data and pass directly to Gemini 3 Flash OCR
+     */
+    async function processGmailAttachment(messageId, attachmentId, mimeType) {
+      if (!attachmentId) {
+        alert("No se encontró un ID de archivo adjunto válido.");
+        return;
+      }
+
+      showProgressBar(true, "Descargando adjunto desde Gmail...");
+
+      try {
+        const url = `https://gmail.googleapis.com/gmail/v1/users/me/messages/${messageId}/attachments/${attachmentId}`;
+        const response = await fetch(url, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+
+        if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+
+        const attachmentData = await response.json();
+        // Convert URL-safe base64 to standard base64
+        const rawBase64 = attachmentData.data.replace(/-/g, '+').replace(/_/g, '/');
+        const dataUrl = `data:${mimeType};base64,${rawBase64}`;
+
+        updateProgressBar(50, "Analizando imagen con Gemini IA...");
+
+        const extracted = await extractDataWithGemini(dataUrl, mimeType);
+
+        records.push({
+          id: Date.now() + Math.random(),
+          apellido_nombre: extracted.apellido_nombre || extracted.nombre || 'Revisar manualmente',
+          dni: extracted.dni || 'Revisar manualmente',
+          sede: extracted.sede || 'Posadas',
+          banco: extracted.banco || 'Revisar manualmente',
+          nroOperacion: extracted.nroOperacion || extracted.operacion || 'Revisar manualmente',
+          monto: extracted.monto || '0.00',
+          fecha: extracted.fecha || 'No detectada',
+          titular_cuenta: extracted.titular_cuenta || extracted.titular || 'No detectado',
+          observaciones: extracted.observaciones || 'Extraído desde Gmail real',
+          imageUrl: dataUrl
+        });
+
+        renderTable();
+        updateMetrics();
+        switchTab('table');
+
+      } catch (err) {
+        console.error("Error al procesar adjunto de Gmail:", err);
+        alert("Error al extraer comprobante: " + err.message);
+      } finally {
+        showProgressBar(false);
+      }
+    }
+
+    async function extractDataWithGemini(base64Data, mimeType) {
+      // 1. Intentar procesamiento a través del servidor backend local (que posee apis.txt con claves activas)
+      try {
+        const response = await fetch('/api/process-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            base64: base64Data,
+            mimeType: mimeType || 'image/jpeg'
+          })
+        });
+
+        const resJson = await response.json();
+        if (response.ok) {
+          return {
+            nombre: resJson.nombre || resJson.primerApellido || 'Revisar manualmente',
+            dni: resJson.dni || 'Revisar manualmente',
+            sede: resJson.sede || 'Revisar manualmente',
+            banco: resJson.banco || 'Revisar manualmente',
+            monto: resJson.monto || '0',
+            nroOperacion: resJson.nroOperacion || 'Revisar manualmente',
+            fecha: resJson.fecha || 'No detectada',
+            titular_cuenta: resJson.titular || resJson.titular_cuenta || 'No detectado',
+            observaciones: 'Extraído por Gemini IA en Servidor'
+          };
+        } else {
+          throw new Error(resJson.error || `HTTP Error ${response.status}`);
+        }
+      } catch (backendErr) {
+        if (backendErr.message && !backendErr.message.includes('Failed to fetch')) {
+          throw backendErr;
+        }
+        console.warn("Backend local no disponible para procesamiento de imagen, intentando API directa:", backendErr);
+      }
+
+      // 2. Fallback a llamado directo a Gemini API con modelo gemini-2.5-flash y clave por defecto
+      const customKey = localStorage.getItem('gemini_api_key') || document.getElementById('custom-gemini-key')?.value?.trim();
+      const defaultKey = "AIzaSyAssnfm9kGj_I-Rw2S6_cxkQGOpIBv9YYM";
+      const apiKey = customKey || defaultKey; 
+
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+
+      const userPrompt = `Analiza de manera experta este comprobante de pago bancario y extrae con máxima precisión los datos estructurados para conciliación de caja.
+
+Reglas de extracción críticas:
+1. Identifica el banco emisor: Debe ser 'MP' si es de Mercado Pago, 'MACRO' si es de Banco Macro, 'BNA' si es de Banco Nación, 'PERSONAL_PAY' si es de Personal Pay, 'MODO' si es de MODO, 'ASTRO_PAY' si es de Astro Pay, o 'OTROS' si es otro medio.
+2. Identifica el Apellido y Nombre del ordenante si figura. Formatea siempre como: APELLIDO, NOMBRE (en mayúsculas).
+3. Si figura un CUIT, CUIL o CUIT/CUIL del remitente (ejemplo: '27-30826835-2' o '20427619053'), extrae exclusivamente la sección de 8 dígitos intermedios correspondiente al DNI del ordenante. Si el banco es MACRO y no figura el DNI, CUIT o CUIL del remitente/ordenante, NO extraigas el CUIT/DNI del destinatario; en ese caso deja el campo "dni" totalmente vacío ("").
+4. Obtén el número de operación, transacción, comprobante o ID de transferencia de manera exacta. IMPORTANTE para Banco Macro: El número de operación se encuentra en la cabecera superior al lado de la fecha y hora (ejemplo: '30/05/2026 13:38 1325295412' -> el nro de operación es '1325295412').
+5. Obtén la fecha de la operación y conviértela estrictamente al formato simple: DD-MM-AAAA.
+6. Obtén el importe o importe neto transferido como número flotante o entero.
+7. Obtén el titular de la cuenta origen si se menciona de forma explícita.`;
+
+      const payload = {
+        contents: [
+          {
+            role: "user",
+            parts: [
+              { text: userPrompt },
+              {
+                inlineData: {
+                  mimeType: mimeType || "image/jpeg",
+                  data: base64Data.split(',')[1] || base64Data
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: {
+          responseMimeType: "application/json",
+          responseSchema: {
+            type: "OBJECT",
+            properties: {
+              apellidoNombre: { type: "STRING" },
+              dni: { type: "STRING" },
+              banco: { type: "STRING", enum: ["MP", "MACRO", "BNA", "PERSONAL_PAY", "MODO", "ASTRO_PAY", "OTROS"] },
+              operacion: { type: "STRING" },
+              fecha: { type: "STRING" },
+              monto: { type: "NUMBER" },
+              titular: { type: "STRING" }
+            },
+            required: ["banco", "operacion", "fecha", "monto"]
+          }
+        }
+      };
+
+      const response = await fetch(apiUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+
+      if (!response.ok) throw new Error(`HTTP Error ${response.status}`);
+
+      const result = await response.json();
+      const jsonText = result.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (jsonText) {
+        const parsed = JSON.parse(jsonText);
+        return {
+          nombre: parsed.apellidoNombre || parsed.nombre || 'Revisar manualmente',
+          dni: parsed.dni || 'Revisar manualmente',
+          sede: 'Posadas',
+          banco: parsed.banco || 'OTROS',
+          monto: parsed.monto !== undefined && parsed.monto !== null ? String(parsed.monto) : '0',
+          nroOperacion: parsed.operacion || parsed.nroOperacion || 'Revisar manualmente',
+          fecha: parsed.fecha || 'No detectada',
+          titular_cuenta: parsed.titular || parsed.titular_cuenta || 'No detectado',
+          observaciones: 'Extraído por Gemini IA Directo'
+        };
+      }
+      throw new Error("No se pudo procesar la imagen con Gemini IA.");
+    }
+
+    function createMockReceiptCanvas(data) {
+      const canvas = document.createElement('canvas');
+      canvas.width = 450;
+      canvas.height = 600;
+      const ctx = canvas.getContext('2d');
+
+      const isMercadoPago = data.banco.toLowerCase().includes('mercado');
+      const bgGrad = ctx.createLinearGradient(0, 0, 0, 600);
+      
+      if (isMercadoPago) {
+        bgGrad.addColorStop(0, '#009ee3');
+        bgGrad.addColorStop(0.3, '#ffffff');
+        bgGrad.addColorStop(1, '#f5f5f5');
+      } else {
+        bgGrad.addColorStop(0, '#1e293b');
+        bgGrad.addColorStop(0.3, '#f8fafc');
+        bgGrad.addColorStop(1, '#e2e8f0');
+      }
+
+      ctx.fillStyle = bgGrad;
+      ctx.fillRect(0, 0, 450, 600);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.shadowColor = 'rgba(0,0,0,0.15)';
+      ctx.shadowBlur = 15;
+      ctx.fillRect(25, 30, 400, 540);
+      ctx.shadowBlur = 0;
+
+      ctx.fillStyle = isMercadoPago ? '#009ee3' : '#3b82f6';
+      ctx.fillRect(25, 30, 400, 80);
+
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(data.banco.toUpperCase(), 45, 65);
+      ctx.font = '12px sans-serif';
+      ctx.fillText('Comprobante de Transferencia / Pago', 45, 88);
+
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 28px sans-serif';
+      ctx.fillText(`$ ${data.monto}`, 45, 160);
+
+      ctx.fillStyle = '#16a34a';
+      ctx.font = 'bold 12px sans-serif';
+      ctx.fillText('✓ Transacción Exitosa', 45, 185);
+
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(45, 205);
+      ctx.lineTo(405, 205);
+      ctx.stroke();
+
+      const details = [
+        ['Apellido y Nombre:', data.apellido_nombre],
+        ['DNI / CUIT:', data.dni],
+        ['Banco Origen/Destino:', data.banco],
+        ['Fecha de Pago:', data.fecha],
+        ['Titular Cuenta:', data.titular_cuenta],
+        ['Nro de Operación:', 'OP-' + Math.floor(10000000 + Math.random() * 90000000)]
+      ];
+
+      let yPos = 240;
+      details.forEach(([label, val]) => {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '11px sans-serif';
+        ctx.fillText(label, 45, yPos);
+
+        ctx.fillStyle = '#0f172a';
+        ctx.font = 'semibold 13px sans-serif';
+        ctx.fillText(val, 45, yPos + 18);
+
+        yPos += 48;
+      });
+
+      return canvas.toDataURL('image/png');
+    }
+
+    async function generateDemoData() {
+      const demoSamples = [
+        { apellido_nombre: 'González Lautaro', dni: '38.452.190', banco: 'Mercado Pago', monto: '85.400,00', fecha: '28/07/2026', titular_cuenta: 'Lautaro González' },
+        { apellido_nombre: 'Martínez María Belén', dni: '27.109.844', banco: 'Banco Galicia', monto: '120.000,00', fecha: '27/07/2026', titular_cuenta: 'Empresa SA' },
+        { apellido_nombre: 'Rodríguez Carlos Javier', dni: '34.901.222', banco: 'BBVA Argentina', monto: '42.500,50', fecha: '26/07/2026', titular_cuenta: 'Carlos Rodríguez' },
+        { apellido_nombre: 'Fernández Sofía', dni: '40.112.553', banco: 'Santander Rio', monto: '15.200,00', fecha: '25/07/2026', titular_cuenta: 'Sofía Fernández' }
+      ];
+
+      showProgressBar(true, "Generando datos de demostración...");
+
+      for (let i = 0; i < demoSamples.length; i++) {
+        const item = demoSamples[i];
+        updateProgressBar((i + 1) / demoSamples.length * 100, `Procesando ejemplo ${i + 1} de ${demoSamples.length}...`);
+
+        const imgDataUrl = createMockReceiptCanvas(item);
+
+        records.push({
+          id: Date.now() + Math.random(),
+          apellido_nombre: item.apellido_nombre,
+          dni: item.dni,
+          sede: item.sede || 'Posadas',
+          banco: item.banco,
+          monto: item.monto,
+          fecha: item.fecha,
+          titular_cuenta: item.titular_cuenta,
+          observaciones: 'Ejemplo de demostración',
+          imageUrl: imgDataUrl
+        });
+
+        await new Promise(r => setTimeout(r, 200));
+      }
+
+      showProgressBar(false);
+      renderTable();
+      updateMetrics();
+      switchTab('table');
+    }
+
+    function renderTable() {
+      const tbody = document.getElementById('table-body');
+      const emptyState = document.getElementById('empty-state');
+      const searchQuery = document.getElementById('search-input').value.toLowerCase();
+
+      tbody.innerHTML = '';
+
+      const filteredRecords = records.filter(r => {
+        return (
+          (r.apellido_nombre || '').toLowerCase().includes(searchQuery) ||
+          (r.dni || '').toLowerCase().includes(searchQuery) ||
+          (r.banco || '').toLowerCase().includes(searchQuery) ||
+          (r.titular_cuenta || '').toLowerCase().includes(searchQuery)
+        );
+      });
+
+      if (filteredRecords.length === 0) {
+        emptyState.classList.remove('hidden');
+        document.getElementById('rows-count-footer').innerText = '0 filas cargadas';
+        return;
+      } else {
+        emptyState.classList.add('hidden');
+      }
+
+      filteredRecords.forEach((record, index) => {
+        const tr = document.createElement('tr');
+        tr.className = "hover:bg-slate-700/40 transition-colors group";
+
+        tr.innerHTML = `
+          <td class="p-3 text-center text-slate-500 border-r border-slate-700/50 font-mono text-[11px]">${index + 1}</td>
+          
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.apellido_nombre)}" onchange="updateCell(${record.id}, 'apellido_nombre', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-slate-100 font-medium">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.dni)}" onchange="updateCell(${record.id}, 'dni', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-slate-300 font-mono">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.banco)}" onchange="updateCell(${record.id}, 'banco', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-sky-300 font-medium">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.nroOperacion)}" onchange="updateCell(${record.id}, 'nroOperacion', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-slate-300 font-mono">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.fecha)}" onchange="updateCell(${record.id}, 'fecha', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-slate-300">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.monto)}" onchange="updateCell(${record.id}, 'monto', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-emerald-400 font-semibold font-mono">
+          </td>
+
+          <td class="p-2 border-r border-slate-700/50">
+            <input type="text" value="${escapeHtml(record.titular_cuenta)}" onchange="updateCell(${record.id}, 'titular_cuenta', this.value)" class="editable-cell w-full bg-transparent px-2 py-1 rounded text-slate-200">
+          </td>
+        `;
+
+        tbody.appendChild(tr);
+      });
+
+      document.getElementById('rows-count-footer').innerText = `${filteredRecords.length} filas cargadas`;
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str).replace(/"/g, '&quot;');
+    }
+
+    function updateCell(id, field, value) {
+      const rec = records.find(r => r.id === id);
+      if (rec) {
+        rec[field] = value;
+        updateMetrics();
+      }
+    }
+
+    function deleteRow(id) {
+      records = records.filter(r => r.id !== id);
+      renderTable();
+      updateMetrics();
+    }
+
+    function clearAllData() {
+      if (records.length === 0) return;
+      if (confirm('¿Estás seguro de que deseas vaciar toda la hoja de cálculo?')) {
+        records = [];
+        renderTable();
+        updateMetrics();
+      }
+    }
+
+    function updateMetrics() {
+      document.getElementById('kpi-count').innerText = records.length;
+      document.getElementById('kpi-count-badge').innerText = `${records.length} registros`;
+
+      let total = 0;
+      const bankCounts = {};
+
+      records.forEach(r => {
+        let cleanVal = (r.monto || '')
+          .replace(/\$/g, '')
+          .replace(/\./g, '')
+          .replace(/,/g, '.');
+        let num = parseFloat(cleanVal);
+        if (!isNaN(num)) total += num;
+
+        if (r.banco) {
+          const b = r.banco.trim();
+          bankCounts[b] = (bankCounts[b] || 0) + 1;
+        }
+      });
+
+      const formattedTotal = new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS' }).format(total);
+      document.getElementById('kpi-total-amount').innerText = formattedTotal;
+      document.getElementById('footer-total-sum').innerText = formattedTotal;
+
+      // El card de bancos fue reemplazado por Progreso y Carpeta
+    }
+
+    function handleDragOver(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('drop-zone').classList.add('bg-indigo-900/30', 'border-indigo-400');
+    }
+
+    function handleDragLeave(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('drop-zone').classList.remove('bg-indigo-900/30', 'border-indigo-400');
+    }
+
+    function handleFileDrop(e) {
+      e.preventDefault();
+      e.stopPropagation();
+      document.getElementById('drop-zone').classList.remove('bg-indigo-900/30', 'border-indigo-400');
+      
+      if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        addFilesToQueue(Array.from(e.dataTransfer.files));
+      }
+    }
+
+    function handleFileSelect(e) {
+      if (e.target.files && e.target.files.length > 0) {
+        addFilesToQueue(Array.from(e.target.files));
+      }
+    }
+
+    function addFilesToQueue(files) {
+      files.forEach(file => {
+        const reader = new FileReader();
+        reader.onload = function(evt) {
+          fileQueue.push({
+            id: Date.now() + Math.random(),
+            file: file,
+            dataUrl: evt.target.result,
+            status: 'pending'
+          });
+          renderQueueList();
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function renderQueueList() {
+      const container = document.getElementById('upload-queue-container');
+      const list = document.getElementById('upload-queue-list');
+      document.getElementById('queue-count').innerText = fileQueue.length;
+
+      if (fileQueue.length === 0) {
+        container.classList.add('hidden');
+        return;
+      }
+
+      container.classList.remove('hidden');
+      list.innerHTML = '';
+
+      fileQueue.forEach(q => {
+        const item = document.createElement('div');
+        item.className = "bg-slate-800 border border-slate-700 rounded-lg p-3 flex items-center justify-between text-xs";
+        
+        item.innerHTML = `
+          <div class="flex items-center gap-3">
+            <img src="${q.dataUrl}" class="w-10 h-10 object-cover rounded bg-slate-900">
+            <div>
+              <p class="font-medium text-slate-200 truncate max-w-[200px]">${escapeHtml(q.file.name)}</p>
+              <p class="text-[10px] text-slate-400">${(q.file.size / 1024).toFixed(1)} KB</p>
+            </div>
+          </div>
+          <span class="px-2 py-0.5 rounded text-[10px] font-semibold ${q.status === 'done' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-amber-500/20 text-amber-300'}">
+            ${q.status === 'done' ? 'Procesado' : 'Pendiente'}
+          </span>
+        `;
+        list.appendChild(item);
+      });
+    }
+
+    async function processQueue() {
+      if (fileQueue.length === 0) return;
+
+      showProgressBar(true, "Procesando comprobantes locales...");
+
+      for (let i = 0; i < fileQueue.length; i++) {
+        const item = fileQueue[i];
+        if (item.status === 'done') continue;
+
+        updateProgressBar((i / fileQueue.length) * 100, `Procesando ${item.file.name} con Gemini...`);
+
+        try {
+          const extracted = await extractDataWithGemini(item.dataUrl, item.file.type);
+          
+          records.push({
+            id: Date.now() + Math.random(),
+            apellido_nombre: extracted.apellido_nombre || extracted.nombre || 'No detectado',
+            dni: extracted.dni || 'No detectado',
+            banco: extracted.banco || 'No detectado',
+            nroOperacion: extracted.nroOperacion || extracted.operacion || 'No detectado',
+            monto: extracted.monto || '0.00',
+            fecha: extracted.fecha || 'No detectada',
+            titular_cuenta: extracted.titular_cuenta || extracted.titular || 'No detectado',
+            observaciones: extracted.observaciones || 'Extraído por Gemini IA',
+            imageUrl: item.dataUrl
+          });
+
+          item.status = 'done';
+        } catch (err) {
+          console.error(err);
+          alert(`Error al procesar ${item.file.name}: ${err.message}`);
+        }
+      }
+
+      showProgressBar(false);
+      fileQueue = [];
+      renderQueueList();
+      renderTable();
+      updateMetrics();
+      switchTab('table');
+    }
+
+    function sortTable(field) {
+      sortDirection[field] = !sortDirection[field];
+      const asc = sortDirection[field];
+
+      records.sort((a, b) => {
+        let valA = a[field] || '';
+        let valB = b[field] || '';
+
+        if (field === 'monto') {
+          valA = parseFloat(valA.replace(/\./g, '').replace(',', '.')) || 0;
+          valB = parseFloat(valB.replace(/\./g, '').replace(',', '.')) || 0;
+        }
+
+        if (valA < valB) return asc ? -1 : 1;
+        if (valA > valB) return asc ? 1 : -1;
+        return 0;
+      });
+
+      renderTable();
+    }
+
+    function filterTable() {
+      renderTable();
+    }
+
+    function exportToExcel() {
+      if (records.length === 0) {
+        alert("No hay registros en la tabla para exportar.");
+        return;
+      }
+
+      const excelData = records.map((r, i) => ({
+        "N°": i + 1,
+        "Apellido y Nombre": r.apellido_nombre,
+        "DNI / CUIT": r.dni,
+        "Banco": r.banco,
+        "Nro de Operación": r.nroOperacion,
+        "Fecha": r.fecha,
+        "Monto ($)": r.monto,
+        "Titular de Cuenta": r.titular_cuenta
+      }));
+
+      const worksheet = XLSX.utils.json_to_sheet(excelData);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, worksheet, "Comprobantes");
+
+      worksheet["!cols"] = [
+        { wch: 5 }, { wch: 25 }, { wch: 15 }, { wch: 18 }, { wch: 15 }, { wch: 20 }, { wch: 12 }, { wch: 20 }
+      ];
+
+      XLSX.writeFile(workbook, `Comprobantes_Gmail_${new Date().toISOString().slice(0,10)}.xlsx`);
+    }
+
+    function copyTableToClipboard() {
+      if (records.length === 0) {
+        alert("No hay datos para copiar.");
+        return;
+      }
+
+      let tsv = "N°\tApellido y Nombre\tDNI / CUIT\tBanco\tNro de Operación\tFecha\tMonto\tTitular de Cuenta\n";
+      
+      records.forEach((r, i) => {
+        tsv += `${i + 1}\t${r.apellido_nombre}\t${r.dni}\t${r.banco}\t${r.nroOperacion}\t${r.fecha}\t${r.monto}\t${r.titular_cuenta}\n`;
+      });
+
+      const textArea = document.createElement("textarea");
+      textArea.value = tsv;
+      document.body.appendChild(textArea);
+      textArea.select();
+      
+      try {
+        document.execCommand('copy');
+        alert("¡Datos copiados al portapapeles! Abre Google Sheets y presiona Ctrl+V.");
+      } catch (err) {
+        alert("Error al copiar al portapapeles.");
+      } finally {
+        document.body.removeChild(textArea);
+      }
+    }
+
+    /* Modal interactions */
+    function openReceiptModal(id) {
+      const record = records.find(r => r.id === id);
+      if (!record) return;
+
+      currentModalIndex = id;
+
+      document.getElementById('modal-field-nombre').value = record.apellido_nombre || '';
+      document.getElementById('modal-field-dni').value = record.dni || '';
+      document.getElementById('modal-field-banco').value = record.banco || '';
+      document.getElementById('modal-field-nro').value = record.nroOperacion || '';
+      document.getElementById('modal-field-fecha').value = record.fecha || '';
+      document.getElementById('modal-field-monto').value = record.monto || '';
+      document.getElementById('modal-field-titular').value = record.titular_cuenta || '';
+
+      const img = document.getElementById('modal-receipt-img');
+      if (record.imageUrl) {
+        img.src = record.imageUrl;
+      } else {
+        img.src = 'https://placehold.co/400x500/1e293b/94a3b8?text=Sin+Imagen';
+      }
+
+      document.getElementById('receipt-modal').classList.remove('hidden');
+    }
+
+    function closeReceiptModal() {
+      document.getElementById('receipt-modal').classList.add('hidden');
+      currentModalIndex = null;
+    }
+
+    function saveModalRowChanges() {
+      if (currentModalIndex === null) return;
+
+      const record = records.find(r => r.id === currentModalIndex);
+      if (record) {
+        record.apellido_nombre = document.getElementById('modal-field-nombre').value;
+        record.dni = document.getElementById('modal-field-dni').value;
+        record.banco = document.getElementById('modal-field-banco').value;
+        record.nroOperacion = document.getElementById('modal-field-nro').value;
+        record.fecha = document.getElementById('modal-field-fecha').value;
+        record.monto = document.getElementById('modal-field-monto').value;
+        record.titular_cuenta = document.getElementById('modal-field-titular').value;
+
+        renderTable();
+        updateMetrics();
+      }
+
+      closeReceiptModal();
+    }
+
+    function deleteCurrentModalRow() {
+      if (currentModalIndex !== null) {
+        deleteRow(currentModalIndex);
+        closeReceiptModal();
+      }
+    }
+
+    function openSettingsModal() {
+      document.getElementById('settings-modal').classList.remove('hidden');
+    }
+
+    function closeSettingsModal() {
+      document.getElementById('settings-modal').classList.add('hidden');
+    }
+
+    function showProgressBar(show, text = "") {
+      const bar = document.getElementById('processing-progress-bar');
+      if (show) {
+        bar.classList.remove('hidden');
+        document.getElementById('processing-status-text').innerText = text;
+      } else {
+        bar.classList.add('hidden');
+      }
+    }
+
+    function updateProgressBar(percentage, statusText) {
+      document.getElementById('processing-progress-fill').style.width = `${percentage}%`;
+      if (statusText) {
+        document.getElementById('processing-status-text').innerText = statusText;
+      }
+    }
+  </script>
+</body>
+</html>
